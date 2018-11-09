@@ -59,15 +59,23 @@ is
        --  The cross-links between VSS and TTD are consistent
        and then (for all VSS in VSS_Index =>
                    VSS in TTD_View(VSS_View(VSS).Inside_TTD).First_VSS ..
-                          TTD_View(VSS_View(VSS).Inside_TTD).Last_VSS);
+                          TTD_View(VSS_View(VSS).Inside_TTD).Last_VSS)
+       and then (for all TTD in TTD_Index =>
+                   (for all VSS in TTD_View(TTD).First_VSS ..
+                                   TTD_View(TTD).Last_VSS =>
+                        VSS_View(VSS).Inside_TTD = TTD));
 
    --  A TDD is Free iff all the corresponding VSS are Free
+
+   function Valid_Track_Data (TD : Track_Data; TTD : TTD_Index) return Boolean
+   is
+     ((TD.TTD_View (TTD).State = Free) =
+      (for all VSS in TD.TTD_View (TTD).First_VSS ..
+                      TD.TTD_View (TTD).Last_VSS =>
+         TD.VSS_View (VSS).State = Free));
+
    function Valid_Track_Data (TD : Track_Data) return Boolean is
-     (for all TDD in TTD_Index =>
-        (TD.TTD_View (TDD).State = Free) =
-        (for all VSS in TD.TTD_View (TDD).First_VSS ..
-                        TD.TTD_View (TDD).Last_VSS =>
-           TD.VSS_View (VSS).State = Free));
+     (for all TTD in TTD_Index => Valid_Track_Data (TD, TTD));
 
    --  Types defining the trains
 
@@ -92,6 +100,15 @@ is
 
    function State_Of (TTD : TTD_Index) return TTD_State is
       (Track.TTD_View(TTD).State);
+
+   function TTD_Of (VSS : VSS_Index) return TTD_Index is
+      (Track.VSS_View(VSS).Inside_TTD);
+
+   function First_VSS_Of (TTD : TTD_Index) return VSS_Index is
+      (Track.TTD_View(TTD).First_VSS);
+
+   function Last_VSS_Of (TTD : TTD_Index) return VSS_Index is
+      (Track.TTD_View(TTD).Last_VSS);
 
    --  Events for state transitions
 
