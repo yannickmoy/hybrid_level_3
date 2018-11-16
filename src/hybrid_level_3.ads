@@ -23,9 +23,14 @@ is
       --  is located on the VSS, but it is not certain that the VSS is free.
       Unknown);
 
-   type VSS_Data is record
-      State      : VSS_State;
+   type VSS_Static_Data is record
       Inside_TTD : TTD_Index;
+   end record;
+
+   type VSS_Static_On_Track is array (VSS_Index) of VSS_Static_Data;
+
+   type VSS_Data is record
+      State : VSS_State;
    end record;
 
    type VSS_On_Track is array (VSS_Index) of VSS_Data;
@@ -34,19 +39,24 @@ is
 
    subtype TTD_State is VSS_State range Free .. Occupied;
 
-   type TTD_Data is record
-      State                     : TTD_State;
-      First_VSS                 : VSS_Index;
-      Last_VSS                  : VSS_Index;
-      Last_Train_Located_On_TTD : Train_ID;
+   type TTD_Static_Data is record
+      First_VSS : VSS_Index;
+      Last_VSS  : VSS_Index;
    end record
      with Dynamic_Predicate => First_VSS <= Last_VSS;
 
+   type TTD_Static_On_Track is array (TTD_Index) of TTD_Static_Data;
+
+   type TTD_Data is record
+      State                     : TTD_State;
+      Last_Train_Located_On_TTD : Train_ID;
+   end record;
+
    type TTD_On_Track is array (TTD_Index) of TTD_Data;
 
-   type Track_Data is record
-      VSS_View : VSS_On_Track;
-      TTD_View : TTD_On_Track;
+   type Track_Static_Data is record
+      VSS_View : VSS_Static_On_Track;
+      TTD_View : TTD_Static_On_Track;
    end record
      with Dynamic_Predicate =>
        --  First VSS in TTD view is really first VSS
@@ -65,17 +75,10 @@ is
                                    TTD_View(TTD).Last_VSS =>
                         VSS_View(VSS).Inside_TTD = TTD));
 
-   --  A TDD is Free iff all the corresponding VSS are Free
-
-   function Valid_Track_Data (TD : Track_Data; TTD : TTD_Index) return Boolean
-   is
-     ((TD.TTD_View (TTD).State = Free) =
-      (for all VSS in TD.TTD_View (TTD).First_VSS ..
-                      TD.TTD_View (TTD).Last_VSS =>
-         TD.VSS_View (VSS).State = Free));
-
-   function Valid_Track_Data (TD : Track_Data) return Boolean is
-     (for all TTD in TTD_Index => Valid_Track_Data (TD, TTD));
+   type Track_Data is record
+      VSS_View : VSS_On_Track;
+      TTD_View : TTD_On_Track;
+   end record;
 
    --  Types defining the trains
 
@@ -90,8 +93,21 @@ is
 
    --  Global variables defining the state
 
-   Track  : Track_Data;
-   Trains : Trains_Data;
+   Track_Static : Track_Static_Data;
+   Track        : Track_Data;
+   Trains       : Trains_Data;
+
+   --  A TDD is Free iff all the corresponding VSS are Free
+
+   function Valid_Track_Data (TD : Track_Data; TTD : TTD_Index) return Boolean
+   is
+     ((TD.TTD_View (TTD).State = Free) =
+      (for all VSS in Track_Static.TTD_View (TTD).First_VSS ..
+                      Track_Static.TTD_View (TTD).Last_VSS =>
+         TD.VSS_View (VSS).State = Free));
+
+   function Valid_Track_Data (TD : Track_Data) return Boolean is
+     (for all TTD in TTD_Index => Valid_Track_Data (TD, TTD));
 
    --  Getters
 
@@ -102,13 +118,13 @@ is
       (Track.TTD_View(TTD).State);
 
    function TTD_Of (VSS : VSS_Index) return TTD_Index is
-      (Track.VSS_View(VSS).Inside_TTD);
+      (Track_Static.VSS_View(VSS).Inside_TTD);
 
    function First_VSS_Of (TTD : TTD_Index) return VSS_Index is
-      (Track.TTD_View(TTD).First_VSS);
+      (Track_Static.TTD_View(TTD).First_VSS);
 
    function Last_VSS_Of (TTD : TTD_Index) return VSS_Index is
-      (Track.TTD_View(TTD).Last_VSS);
+      (Track_Static.TTD_View(TTD).Last_VSS);
 
    --  Events for state transitions
 
@@ -123,22 +139,32 @@ is
       end case;
    end record;
 
-   procedure State_Transition (E : Event; TTD : TTD_Index) with
-     Pre  => Valid_Track_Data (Track),
-     Post => Valid_Track_Data (Track),
+   procedure State_Transition (E : Event; VSS : VSS_Index) with
+     Global => (In_Out => Track,
+                Input  => Track_Static),
+     Post =>
+       --  The state of the track is at most modified in the state of the VSS
+       --  passed in argument.
+       (for Some New_State in VSS_State =>
+          Track = Track'Old'Update
+            (VSS_View => Track.VSS_View'Old'Update (VSS => (State => New_State)))),
+
      Contract_Cases =>
-       (State_Of (TTD) = Free
-        and then E.Kind = TTD_State_Event
-        and then E.TTD = TTD
+       (E.Kind = TTD_State_Event
+        and then E.TTD = TTD_Of (VSS)
         and then E.State = Occupied
-        => State_Of (TTD) = Occupied,
+        and then VSS = First_VSS_Of (TTD_Of (VSS))
+        => State_Of (VSS) = Occupied,
 
-        State_Of (TTD) = Occupied
-        and then E.Kind = TTD_State_Event
-        and then E.TTD = TTD
+        E.Kind = TTD_State_Event
+        and then E.TTD = TTD_Of (VSS)
         and then E.State = Free
-        => State_Of (TTD) = Free,
+        => State_Of (VSS) = Free,
 
-        others => State_Of (TTD) = State_Of (TTD)'Old);
+        others => State_Of (VSS) = State_Of (VSS)'Old);
+
+   procedure Handle_Event (E : Event) with
+     Pre  => Valid_Track_Data (Track),
+     Post => Valid_Track_Data (Track);
 
 end Hybrid_Level_3;

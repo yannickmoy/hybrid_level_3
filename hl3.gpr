@@ -5,7 +5,7 @@ project HL3 is
    for Object_Dir use "obj";
 
    package Prove is
-      for Switches use ("-j0", "--level=2", "--report=all");
+      for Switches use ("-j0", "--level=2");
    end Prove;
 
 end HL3;
